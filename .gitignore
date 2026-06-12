@@ -1,0 +1,6 @@
+venv/                   # ignore the virtual environment directory
+__pycache__/
+*.pyc
+.env
+data/raw/*              # ignores the raw data, they should not be versioned over Git (large, not code, will be versioned over DVC)
+!data/raw/.gitkeep
