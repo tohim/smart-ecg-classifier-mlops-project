@@ -1,4 +1,4 @@
 [core]
     remote = localstorage
 ['remote "localstorage"']
-    url = D:/smart-image-classifier-DVC_storage
+    url = D:/smart-ecg-classifier-DVC_storage
