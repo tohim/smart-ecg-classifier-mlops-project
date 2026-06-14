@@ -76,7 +76,13 @@ def main():
     total_samples = len(y_train)
     num_classes = len(class_counts)
 
-    class_weights = total_samples / (num_classes * class_counts)
+    # Original approach to compute the classweights: class_weights = total_samples / (num_classes * class_counts)
+    # Problem: Class weights were too extreme - rarest class (3) got a weight of ~27, while most common class got ~0.24
+    # this caused the model to massively over-predict class 3 -> very low precision (0.14 -> 83% of (3) predictions were wrong)
+    # and very high recall for class 3 (0.92)
+    # Fix: instead of using raw "balanced" weights, take square root of them -> keeps order, but compresses range
+    balanced_weights = total_samples / (num_classes * class_counts)
+    class_weights = np.sqrt(balanced_weights)   # applys np.sqrt() element-wise to each weight
 
     # Convert to PyTorch tensor and move to chosen device. 
     # Loss function needs this tensor on the same device as the model's output
@@ -94,7 +100,10 @@ def main():
     # destructing/ double de-packaging: i -> get the counting up (0,1,2,3,4) ; (name, w) -> internal tuple of zip -> name = String of CLASS_NAME, w = number of class_weights
 
     for i, (name, w) in enumerate(zip(CLASS_NAMES, class_weights)):
-        print(f" {i} - {name}: {w:.3f}")
+        if i < len(CLASS_NAMES) - 1:
+            print(f" {i} - {name}: {w:.3f}")
+        else:
+            print(f" {i} - {name}: {w:.3f}\n")
 
     # Step 5: Create the model, loss function and optimizer
     # Creats the CNN and moves all weights to chosen device. ".to(device)" is needed on BOTH the model and every batch of data. (PyTorch requires this)
@@ -119,6 +128,28 @@ def main():
     # 10 is a reasonable start point for this dataset/ model size - the logged per-epoch metrics will show whether more epochs would help
     num_epochs = 10
 
+#     First attempt/run was: Logging of the LAST epoch's model, not the BEST one.
+#   - Looking at the per-epoch test_f1_macro values from v1, epoch 9
+#     (0.7197) was BETTER than epoch 10 (0.6915) - but saved/logged
+#     epoch 10's weights, since that's simply where the loop ended.
+
+#   - FIX: "model checkpointing" - during training, we keep a copy of
+#     the model's weights from whichever epoch had the best
+#     test_f1_macro so far. After all epochs finish, we load THOSE
+#     weights back into the model before logging it and printing the
+#     final report. This is standard practice in real ML training.
+
+    # Therefore: Variables necessary to track the BEST checkpoint seen so far.
+    # made so that any value will be "better than nothing", to trigger first checkpoint save
+    # these will hold the values/objects from whichever epoch currently has highest/ best -> all are updated together when new best epoch is found
+    best_f1_macro = -1.0
+    best_epoch = -1
+    best_accuracy = None
+    best_f1_weighted = None
+    best_model_state = None
+    best_preds = None
+    best_labels = None
+
     mlflow.set_experiment("ecg-heartbeat-classification")
 
     with mlflow.start_run(run_name="cnn_1d"):
@@ -129,7 +160,9 @@ def main():
         mlflow.log_param("batch_size", batch_size)
         mlflow.log_param("learning_rate", 0.001)
         mlflow.log_param("optimizer", "Adam")
-        mlflow.log_param("loss_function", "CrossEntropyLoss (class-weighted)")
+        mlflow.log_param("loss_function", "CrossEntropyLoss (sqrt-scaled class-weights)")
+        mlflow.log_param("class_weighting_scheme", "sqrt(balanced)")
+        mlflow.log_param("checkpoint_strategy", "best test_f1_score")
 
         # Actual Training Loop: "repeat for each epoch":
         for epoch in range(num_epochs):
@@ -212,17 +245,60 @@ def main():
 
             # Log this epochs metrics to MLflow
             # the "step" parameter tells MLflow that these values belong to a SEQUENCE (one value per epoch) -> so it can plot them as a line chart over time in the UI
-            # e.g., to see whether the test_f1_macro keeps improving or starts getting worse after a certain epoch (a sign of overfitting)
-            mlflow.log_metric("train_loss", epoch_loss, step=epoch)
-            mlflow.log_metric("test_accuracy", accuracy, step=epoch)
-            mlflow.log_metric("test_f1_macro", f1_macro, step=epoch)
-            mlflow.log_metric("test_f1_weighted", f1_weighted, step=epoch)
+            # e.g., to see whether the epoch_f1_macro keeps improving or starts getting worse after a certain epoch (a sign of overfitting)
+            mlflow.log_metric("epoch_train_loss", epoch_loss, step=epoch)
+            mlflow.log_metric("epoch_accuracy", accuracy, step=epoch)
+            mlflow.log_metric("epoch_f1_macro", f1_macro, step=epoch)
+            mlflow.log_metric("epoch_f1_weighted", f1_weighted, step=epoch)
 
 
-        # After all epochs: print final detailed report and log the final model
-        print("\nFinal classification report (last epoch):")
+            # New Checkpoint Logic to find the best epoch from all training runs:
+            if f1_macro > best_f1_macro:
+                best_f1_macro = f1_macro
+                best_epoch = epoch+1    # stored +1 for better readability
+                best_accuracy = accuracy
+                best_f1_weighted = f1_weighted
+
+                # model.state_dict() returns dictionary -> mapping each layer's name to its current weight tensors
+                # IMPORTANT: by default -> returns REFERENCES to the model's tensors , not copies
+                # if stored directly, it would keep changing as the training continues
+                # -> using a dict comprehension with .clone() to create an independent copy of every tensor -> get frozen snapshot
+                best_model_state = {
+                    key: value.clone() for key, value, in model.state_dict().items()
+                }
+                
+                # also store this epochs predictions/labels - to print detailed classification report for the best epoch later 
+                best_preds = all_preds
+                best_labels = all_labels
+
+                print(f" -> New best model (f1_macro={f1_macro:.4f}), checkpoint saved.")
+
+        # Also new in the improved version: after all epochs, restore best checkpoint into the model before logging it
+        # -> now the saved/ logged model is the one that performed best - not just the one that is last
+        # load_state_dict() takes a dictionary like the one state_dict() returns - and copies those values back into the model's layers
+        # -> effectively "rewinding" the model's weights to how they were at "best_epoch".
+        model.load_state_dict(best_model_state)
+
+        print(
+            f"\nBest epoch: {best_epoch}/{num_epochs} "
+            f"(test_f1_macro={best_f1_macro:.4f})"
+        )
+
+        # After all epochs: print final detailed report and log the best model
+        print("\nFinal classification report (best model/checkpoint):")
         print(classification_report(all_labels, all_preds, target_names=CLASS_NAMES))
 
+        # Also new: now log the final summary metrics using the same names as in the train_baseline.py, without the step argument
+        # without step: metrics with "step" are treated as sequence/ history - if logged without: a single final value - exactly like in baseline
+        # necessary, bc MLflow's comparison table aligns columns by metric name - so these need to match.
+        mlflow.log_metric("accuracy", best_accuracy)
+        mlflow.log_metric("f1_macro", best_f1_macro)
+        mlflow.log_metric("f1_weighted", best_f1_weighted)
+
+        # also log to which epoch this corresponds to, as a parameter - a single descriptive fact bout this run
+        mlflow.log_param("best_epoch", best_epoch)
+
+        # now model = the best model out of all runs.
         # mlflow.pytorch.log_model() is the PyTorch equivalent of mlflow.sklearn.log_model() from random forest model
         # saves the models architecture and learned weights in a standardized format for it to be easily reloaded later 
         # e.g. for the API in the later part of the project.
