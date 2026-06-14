@@ -100,10 +100,9 @@ def main():
     # destructing/ double de-packaging: i -> get the counting up (0,1,2,3,4) ; (name, w) -> internal tuple of zip -> name = String of CLASS_NAME, w = number of class_weights
 
     for i, (name, w) in enumerate(zip(CLASS_NAMES, class_weights)):
-        if i < len(CLASS_NAMES) - 1:
-            print(f" {i} - {name}: {w:.3f}")
-        else:
-            print(f" {i} - {name}: {w:.3f}\n")
+        print(f" {i} - {name}: {w:.3f}")
+    
+    print() 
 
     # Step 5: Create the model, loss function and optimizer
     # Creats the CNN and moves all weights to chosen device. ".to(device)" is needed on BOTH the model and every batch of data. (PyTorch requires this)
@@ -126,7 +125,10 @@ def main():
     # Step 6: Training loop setup + MLflow run
     # num_epochs = how many times we go through the ENTIRE training dataset. Each pass gives model chance to refine weights based on what went wrong last time.
     # 10 is a reasonable start point for this dataset/ model size - the logged per-epoch metrics will show whether more epochs would help
-    num_epochs = 10
+
+    # to eventually get more chances for a better model, i increased it to 20 (first low hanging fruit to improve model performance)
+    # the best epoch checkpointing will ensure to chose the best out of the 20 epochs.
+    num_epochs = 20     
 
 #     First attempt/run was: Logging of the LAST epoch's model, not the BEST one.
 #   - Looking at the per-epoch test_f1_macro values from v1, epoch 9
@@ -282,6 +284,14 @@ def main():
         print(
             f"\nBest epoch: {best_epoch}/{num_epochs} "
             f"(test_f1_macro={best_f1_macro:.4f})"
+        )
+
+        # Sanity Check: recompute f1_macro directly from best_preds/_labels and compare it to best_f1_macro
+        recomputed_f1_macro = f1_score(best_labels, best_preds, average="macro")
+
+        print(
+            f"[Sanity check] best_f1_macro={best_f1_macro:.4f} | "
+            f"recomputed from best_preds/best_labels={recomputed_f1_macro:.4f}"
         )
 
         # After all epochs: print final detailed report and log the best model
