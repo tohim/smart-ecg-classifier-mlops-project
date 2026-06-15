@@ -289,6 +289,10 @@ def main():
         mlflow.log_param("best_epoch", best_epoch)
         mlflow.log_param("threshold_percentile", threshold_percentile)
 
+        # log_dict() serialized the python dict/list as a JSON file and attaches it to this run
+        mlflow.log_dict({"threshold_tradeoff": threshold_tradeoff}, "threshold_tradeoff.json")
+
+
         mlflow.pytorch.log_model(model, "model")
 
         print("\nRun complete. Start 'mlflow ui' to view the results.")
