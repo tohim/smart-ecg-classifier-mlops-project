@@ -108,7 +108,8 @@ def main():
     # Creats the CNN and moves all weights to chosen device. ".to(device)" is needed on BOTH the model and every batch of data. (PyTorch requires this)
     model = ECGCNNClassifier(num_classes=num_classes).to(device)
 
-    # nn.CrossEntropyLoss is standard loss function -> compares models raw output scores against true integer labels - producing single number on how 
+    # nn.CrossEntropyLoss is standard loss function -> measures: "How wrong was the predicted class?"
+    # -> compares models raw output scores against true integer labels - producing single number on how 
     # wrong predictions were on average. Lower = better.
     # weight=class_weights_tensor -> makes loss care more about rare classes -> mistakes on rare classes contribute more to the total loss
     # -> optimizer works harder to fix those mistakes
@@ -249,9 +250,9 @@ def main():
             # the "step" parameter tells MLflow that these values belong to a SEQUENCE (one value per epoch) -> so it can plot them as a line chart over time in the UI
             # e.g., to see whether the epoch_f1_macro keeps improving or starts getting worse after a certain epoch (a sign of overfitting)
             mlflow.log_metric("epoch_train_loss", epoch_loss, step=epoch)
-            mlflow.log_metric("epoch_accuracy", accuracy, step=epoch)
-            mlflow.log_metric("epoch_f1_macro", f1_macro, step=epoch)
-            mlflow.log_metric("epoch_f1_weighted", f1_weighted, step=epoch)
+            mlflow.log_metric("epoch_accuracy", float(accuracy), step=epoch)
+            mlflow.log_metric("epoch_f1_macro",float(f1_macro), step=epoch)
+            mlflow.log_metric("epoch_f1_weighted", float(f1_weighted), step=epoch)
 
 
             # New Checkpoint Logic to find the best epoch from all training runs:
@@ -301,9 +302,9 @@ def main():
         # Also new: now log the final summary metrics using the same names as in the train_baseline.py, without the step argument
         # without step: metrics with "step" are treated as sequence/ history - if logged without: a single final value - exactly like in baseline
         # necessary, bc MLflow's comparison table aligns columns by metric name - so these need to match.
-        mlflow.log_metric("accuracy", best_accuracy)
-        mlflow.log_metric("f1_macro", best_f1_macro)
-        mlflow.log_metric("f1_weighted", best_f1_weighted)
+        mlflow.log_metric("accuracy", float(best_accuracy))
+        mlflow.log_metric("f1_macro", float(best_f1_macro))
+        mlflow.log_metric("f1_weighted", float(best_f1_weighted))
 
         # also log to which epoch this corresponds to, as a parameter - a single descriptive fact bout this run
         mlflow.log_param("best_epoch", best_epoch)

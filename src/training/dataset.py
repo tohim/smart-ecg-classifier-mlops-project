@@ -82,7 +82,29 @@ class ECGDataset(Dataset):
 
         signal = self.X[idx].unsqueeze(0)
         label = self.y[idx]
-        
+
         return signal, label
     
+
+class ECGAutoencoderDataset(Dataset):
+
+    # PyTorch Dataset for Autoencoder training/ evaluation
+
+    # Key difference vs. ECGDataset (that we use for the CNN)
+        # ECGDataset returns signal,label-pairs - and signal shaped (1,187) for the Conv1d layers
+        # Here arent any labels in the traditional sense -> autoencoder's target is the input itself.
+        # --> __getitem__ only returns ONE tensor per example, not a tuple
+        # the autoencoder (models.py) uses nn.Linear layers, which expect input shaped (batch, features) - i.e. (batch, 187), WITHOUT
+        # an extra channel dimension -> here we dont call .unsqueeze(0)
+
+
+    def __init__(self, X):
+        # same conversion as in the ECGDataset: numpy array -> PyTorch tensor, preserving dtype float 32
+        self.X = torch.from_numpy(X)    # (num_samples, 187)
+
+    def __len__(self):
+        return len(self.X)
     
+    def __getitem__(self, idx):
+        return self.X[idx]          # returns a single 1D tensor of shape (187,) -> which the DataLoader will stack many of these into a batch (batch_size, 187)
+                                    # needed for the nn.Linear-based autoencoder 

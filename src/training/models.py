@@ -196,3 +196,63 @@ class ECGCNNClassifier(nn.Module):
     
 
 
+class ECGAutoencoder(nn.Module):
+
+    # A simple "dense" (fully-connected) Autoencoder for ECG heartbeats.
+
+    # Unlike the CNN, this NN has no convoluational layers -> therefore: every value connects to every value of the next layer via nn.Linear layers.
+    # Standard, simple choice for fixed-length inputs like the 187-value signals
+    # Avoids extra complexity of "transposed convolutions" that a conv1d-based decoder would require
+
+    # Architecture: for a single example, batch dimension ommited for clarity
+
+    # Input:        (187)
+
+    # -- Encoder --
+    # Linear (187 -> 64) + ReLu
+    # Linear (64  -> 16) + ReLu     <- this is the bottleneck / latent representation: just 16 numbers summarizing the 187-value input
+
+    # -- Decoder --
+    # Linear (16 ->  64) + ReLu     <- linear matrix operation that guarantees exactly 64 output values
+    # Linear (64 -> 187) + Sigmoid  <- linear matrix operation that guarantees exactly 187 output values - exactly what we want
+
+    # Output:       (187)           <- the Reconstruction, values squeezed into (0,1) by sigmoid
+
+    # nn.Sequential is a convenient PyTorch container: it chains a list of layers together, automatically passing the output of each layer 
+    # as the input of the next -> simpler than writing out each step in "forward()" individually (as done above for the CNN)
+    # nn.Sequential is a natural fit when the data flows through layers in a simple, straight line (no branching)
+
+    def __init__(self, input_dim=187, bottleneck_dim=16):
+        super().__init__()
+
+        # Encoder
+        # takes the 187-value input and compresses it down to bottleneck_dim
+        # using 64 as an intermediate stepping stone - gives the network more capacity to leanr useful intermediate features (in theory possible to go straight from 187 -> 16)
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, bottleneck_dim),
+            nn.ReLU(),
+        )
+
+        self.decoder = nn.Sequential(
+            nn.Linear(bottleneck_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, input_dim),
+            nn.Sigmoid(),
+        )
+
+    
+    def forward(self, x):
+        # Parameter: x -> tensor of shape (batch_size, 187)
+        # Returns: Reconstruction -> tensor of shape (batch_size, 187) => model's attempt to reproduce x out of the downsampled representation
+
+        # Important: not returning the bottleneck representation 'z' here.
+        # For this project: only the final reconstruction is returned -> to compute the reconstruction error. 
+        # However, in other applications, like dimensionality reduction/ compression or visualization it might be exactly the goal to return 'z'.
+
+        z = self.encoder(x)                 # (batch, 16) -> the compressed version
+        reconstruction = self.decoder(z)    # (batch, 187) -> the attempt to revuild input
+
+        return reconstruction
+

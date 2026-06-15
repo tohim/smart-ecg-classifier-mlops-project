@@ -101,6 +101,8 @@ def main():
         accuracy = accuracy_score(y_test, y_pred)     
 
         # macro-averaged F1 score: takes simple, unweighted average F1 score across all classes, treating them equally (good for imbalanced datasets)
+        # -> chose F1-macro as core metric, as accuracy is inflated in this dataset due dominant "Normal" class.
+        # -> chose F1-macro score for imbalanced datasets to remove the distortion
         f1_macro = f1_score(y_test, y_pred, average="macro")   
 
         # weighted-averaged F1 score: calculates F1 score for each class and averages them, weighted by the number of true instances for each class (gives more importance to majority class)
@@ -133,6 +135,8 @@ def main():
         mlflow.sklearn.log_model(model, "model")
 
         print("\nRun complete. Start 'mlflow ui' to view the results.")
+        # either enter in bash: mlflow ui
+        # or open locally: http://127.0.0.1:5000/
 
 if __name__ == "__main__":
     main()
