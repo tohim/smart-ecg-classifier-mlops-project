@@ -12,3 +12,5 @@ data/raw/*
 
 *.ipynb
 .ipynb_checkpoints/
+
+mlruns/
