@@ -1,1 +1,5 @@
 /raw
+/processed
+mlruns/
+*.ipynb
+.ipynb_checkpoints/
