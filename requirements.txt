@@ -2,7 +2,7 @@ numpy==1.26.4
 pandas==2.1.4
 scikit-learn==1.4.0
 matplotlib==3.8.2
-torch==2.2.0
+#torch==2.2.0   # keep torch==2.2.0 in the requirements if you do local testing - Dockerfile then handles the install of torch cpu version manually
 mlflow==2.10.0
 dvc==3.44.0
 kaggle==2.2.1
