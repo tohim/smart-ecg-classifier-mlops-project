@@ -1,12 +1,13 @@
-# FASTAPI SERVICE - ECG HEARTBEAT ANALYSIS
+# FASTAPI SERVICE - ECG HEARTBEAT ANALYSIS (Docker-ready version)
 
-# this API provides 1 main endpoint, /predict, which takes a 187-value ECG signal and returns:
-    # 1. a CNN-based classification (which of the 5 heartbeat types is most likely, and the model's confidence for each type)
-    # 2. an Autoencoder-based anomaly score (does this ECG signal look "normal"?)
+# Key change vs. local main file:
+# models are now loaded from plain .pt files in the models/ folder, instead of from the MLflow Model Registry 
+# the .pt files were created by "export_model.py". Everything else (endpoints, request/response schemas, inference logic) is IDENTICAL.
+# also: using proper package-relative imports instead of sys.path trick
+# -> now work reliabily in both local and Docker environments bc python treats src/ as a proper package (due to __init__.py files)
+# -> "src.training.models" is a fully qualified module path (= no naming conflicts anymore with other similar packages/ names)
 
-# Both models are loaded ONCE at startup (not per-request -> loading a model is relatively slow, running inference on an already-loaded model is fast)
 
-import sys
 import os
 import json
 from typing import List, Dict
@@ -14,24 +15,12 @@ from typing import List, Dict
 import numpy as np
 import torch
 import torch.nn.functional as F
-import mlflow.pytorch
+# import mlflow.pytorch - not needed anymore in the docker version, only for local version to load models
 from fastapi import FastAPI
 from pydantic import BaseModel, Field, field_validator
 
-
-# important: making the custom model classes importable!
-
-# CNN and AE were saved via mlflow.pytorch.log_model() (from inside src/training/train_cnn & *_autoencoder.py)
-# there the model classes were imported like "from model import ..." -> possible bc "models" was automatically on sys.path 
-
-# mlflow.pytorch.log_model() saves the model using pyhtons 'pickle' -> does not store a class's full source code 
-# only stores reference like "models.ECGCNNClassifier" and expects python to be able to import models and find that class inside it when loading model later
-
-# Within src/api/main.py -> src/training is not automatically on sys.path -> manually add
-# (Cleaner long-term fix: restructuring src/training into a proper importable package with consistens import paths - maybe a future improvement)
-_TRAINING_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "training"))
-sys.path.append(_TRAINING_DIR)
-
+# Clean, fully qualified import: python looks for a package called "src" inside is a sub-package called "training", inside is a module called "models"
+from src.training.models import ECGCNNClassifier, ECGAutoencoder
 
 # Class names
 CLASS_NAMES = [
@@ -42,8 +31,6 @@ CLASS_NAMES = [
     "Unclassifiable Beat (Q)",                  # label 4
 ]
 
-
-
 # Create FastAPI application object
     # "title/ description/ version" show up automatically in the auto-generated /docs page -> nice free documentation for anyone using this API
 app = FastAPI(
@@ -53,20 +40,29 @@ app = FastAPI(
 )
 
 # Load both models + anomaly threshold ONCE at module import time (i.e. when server starts, before it accepts requests)
-print("Loading CNN classifier from MLflow Model Registry...")
-cnn_model = mlflow.pytorch.load_model("models:/ecg-cnn-classifier@production")
+# now loading from .pt files at startup
+# here "__file__" is the absolute path of THIS file (main.py) - is navigated here from the project root, then into models/.
+# Works correctly both locally and inside Docker container (where /app is the WORKDIR and models/ is at /app/models/)
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_MODELS_DIR = os.path.join(_PROJECT_ROOT, "models")
+
+print("Loading CNN classifier from .pt file...")
+cnn_model = ECGCNNClassifier(num_classes=5) # creates empty model with same architecture as trained - rn with random weights - no learning
+cnn_model.load_state_dict(torch.load(os.path.join(_MODELS_DIR, "cnn_model.pt"), map_location="cpu"))
 cnn_model.eval()
 
-print("Loading Autoencoder from MLflow Model Registry...")
-autoencoder_model = mlflow.pytorch.load_model("models:/ecg-autoencoder@production")
+print("Loading Autoencoder from .pt file...")
+autoencoder_model = ECGAutoencoder(input_dim=187, bottleneck_dim=16)
+autoencoder_model.load_state_dict(torch.load(os.path.join(_MODELS_DIR, "autoencoder_model.pt"), map_location="cpu"))
 autoencoder_model.eval()
 
-print("Loading Autoencoder Anomaly Threshold...")
-with open("models/autoencoder_config.json") as f:
-    _autoencoder_config = json.load(f)
-ANOMALY_THRESHOLD = _autoencoder_config["anomaly_threshold"]
+print("Loading anomaly threshold config...")
+with open(os.path.join(_MODELS_DIR, "autoencoder_config.json")) as f:
+    _config = json.load(f)
+ANOMALY_THRESHOLD = _config["anomaly_threshold"]
 
-print(f"Models loaded successfully. Anomaly threshold = {ANOMALY_THRESHOLD:.6f}")
+print(f"All models loaded. Anomaly threshold = {ANOMALY_THRESHOLD:.6f}")
+
 
 
 # Request Schema:  /predict request body 
@@ -164,5 +160,3 @@ def predict(ecg: ECGSignal):
         anomaly_threshold=round(ANOMALY_THRESHOLD, 6),
         is_anomaly=anomaly_score > ANOMALY_THRESHOLD,
     )
-
-

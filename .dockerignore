@@ -1,0 +1,38 @@
+# Python environment is not needed in the container, dependencies are reinstalled from requirements.txt during image build
+
+venv/
+__pycache__/
+*.pyc
+*pyo
+
+# raw and processed data - not needed for inference (API only needs trained model files, not training data)
+data/
+
+# mlflow tracking data- models are loaded from .pt files
+mlruns/
+
+# dvc internals 
+.dvc/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# git 
+.git/
+
+# test scripts, training code, documentations files, etc
+scripts/
+*.md
+
+# Training scripts not needed for inference - EXCEPT models.py
+# which contains the model class definitions needed to load .pt files.
+# So we exclude individual scripts instead of the whole folder.
+src/training/train_baseline.py
+src/training/train_cnn.py
+src/training/train_autoencoder.py
+src/training/preprocess.py
+src/training/preprocess_ptbdb.py
+src/training/register_models.py
+src/training/export_models.py
+
